@@ -75,13 +75,38 @@ sys_sleep(void)
   return 0;
 }
 
-
 #ifdef LAB_PGTBL
 int
 sys_pgaccess(void)
 {
-  // lab pgtbl: your code here.
-  return 0;
+    // lab pgtbl: your code here.
+    uint64 addr, user_mask;
+    int num;
+    if(argaddr(0, &addr) < 0) {
+        return -1;
+    }
+    if(argint(1, &num) < 0) {
+        return -1;
+    }
+    if(argaddr(2, &user_mask) < 0) {
+        return -1;
+    }
+    if(num > 64) {
+        return -1;
+    }
+
+    struct proc *p = myproc();
+    uint64 mask = 0;
+    for(int i = 0; i < num; i++) {
+        pte_t *pte = walk(p->pagetable, addr+i*PGSIZE, 0);
+        if(*pte & PTE_A) {
+            mask = mask | (1 << i); // set i-th bit of mask to 1
+            *pte = *pte & ~PTE_A; // reset the A bit back to 0
+        }
+    }
+
+    copyout(p->pagetable, user_mask, (char*)&mask, sizeof(mask));
+    return 0;
 }
 #endif
 

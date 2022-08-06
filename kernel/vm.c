@@ -281,6 +281,33 @@ freewalk(pagetable_t pagetable)
   kfree((void*)pagetable);
 }
 
+void vmprint(pagetable_t pagetable, int depth)
+{
+  if(depth == 0) {
+    printf("page table %p\n", pagetable);
+  }
+
+  for(int i = 0; i < 512; ++i) {
+    pte_t pte = pagetable[i]; // get the i-th page
+    if(pte & PTE_V) { // valid page
+      // print page info
+      for(int i = 0; i < depth+1; ++i) {
+        printf(" ..");
+      }
+      uint64 child = PTE2PA(pte);
+      printf("%d: pte %p pa %p\n", i, pte, child);
+
+      // if the page is a directory, recur
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0) {
+        depth++;
+        vmprint((pagetable_t)child, depth);
+        depth--;
+      }
+
+    }
+  }
+}
+
 // Free user memory pages,
 // then free page-table pages.
 void
