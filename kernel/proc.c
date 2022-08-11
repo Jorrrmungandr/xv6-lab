@@ -141,6 +141,18 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+
+  // Allocate a trapframe page for alarm_trapframe.
+  if((p->alarm_trapframe = (struct trapframe *)kalloc()) == 0){
+      release(&p->lock);
+      return 0;
+  }
+
+  p->interval = 0;
+  p->handler = (void(*)()) 0;
+  p->passing_ticks = 0;
+  p->alarm_going_off = 0;
+
   return p;
 }
 
@@ -164,6 +176,15 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  if(p->alarm_trapframe)
+      kfree((void*)p->alarm_trapframe);
+  p->alarm_trapframe = 0;
+
+  p->interval = 0;
+  p->handler = 0;
+  p->alarm_going_off = 0;
+  p->passing_ticks = 0;
 }
 
 // Create a user page table for a given process,
@@ -437,33 +458,39 @@ wait(uint64 addr)
 void
 scheduler(void)
 {
-  struct proc *p;
-  struct cpu *c = mycpu();
+    struct proc *p;
+    struct cpu *c = mycpu();
   
-  c->proc = 0;
-  for(;;){
-    // Avoid deadlock by ensuring that devices can interrupt.
-    intr_on();
+    c->proc = 0;
+    for(;;){
+        // Avoid deadlock by ensuring that devices can interrupt.
+        intr_on();
 
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
+        int found = 0;
+        for(p = proc; p < &proc[NPROC]; p++) {
+            acquire(&p->lock);
+            if(p->state == RUNNABLE) {
+                // Switch to chosen process.  It is the process's job
+                // to release its lock and then reacquire it
+                // before jumping back to us.
+                p->state = RUNNING;
+                c->proc = p;
+                swtch(&c->context, &p->context);
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-      }
-      release(&p->lock);
+                // Process is done running for now.
+                // It should have changed its p->state before coming back.
+                c->proc = 0;
+
+                found = 1;
+            }
+            release(&p->lock);
+        }
+        if(found == 0) {
+            intr_on();
+            asm volatile("wfi");
+        }
     }
-  }
 }
-
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
 // intena because intena is a property of this
